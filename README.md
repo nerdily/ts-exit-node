@@ -1,6 +1,6 @@
 # Tailscale Exit Node - Automated Deployment
 
-Automatically provision and configure a privacy-focused Tailscale exit node in Europe using Terraform and Hetzner Cloud.
+Automatically provision and configure a privacy-focused Tailscale exit node in Europe using [Terraform](https://developer.hashicorp.com/terraform) and [Hetzner Cloud](https://www.hetzner.com/cloud/).
 
 ## Overview
 
