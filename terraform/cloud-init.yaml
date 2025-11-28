@@ -1,0 +1,137 @@
+#cloud-config
+# Cloud-init configuration for Tailscale exit node
+# This runs once on first boot to configure the server
+
+# Update and upgrade packages
+package_update: true
+package_upgrade: true
+
+# Install required packages
+packages:
+  - curl
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+  - iptables-persistent
+
+# Enable IP forwarding for exit node functionality
+write_files:
+  - path: /etc/sysctl.d/99-tailscale.conf
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv6.conf.all.forwarding = 1
+    owner: root:root
+    permissions: '0644'
+
+  - path: /etc/fail2ban/jail.local
+    content: |
+      [sshd]
+      enabled = true
+      port = 22
+      filter = sshd
+      logpath = /var/log/auth.log
+      maxretry = 5
+      bantime = 3600
+    owner: root:root
+    permissions: '0644'
+
+  - path: /etc/ufw/before.rules.append
+    content: |
+      # NAT table rules for exit node (to be added to before.rules)
+      *nat
+      :POSTROUTING ACCEPT [0:0]
+      -A POSTROUTING -s 100.64.0.0/10 -o eth0 -j MASQUERADE
+      COMMIT
+    owner: root:root
+    permissions: '0644'
+
+# Run commands to set up the system
+runcmd:
+  # Apply sysctl settings immediately
+  - sysctl -p /etc/sysctl.d/99-tailscale.conf
+
+  # Configure SSH security (disable password auth, disable root login)
+  - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+  - systemctl restart sshd
+
+  # Configure UFW firewall
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp comment 'SSH'
+  - ufw allow 41641/udp comment 'Tailscale'
+
+  # Configure UFW for exit node forwarding
+  - sed -i 's/DEFAULT_FORWARD_POLICY="DROP"/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+
+  # Add NAT rules to UFW before.rules (at the top)
+  - sed -i '1r /etc/ufw/before.rules.append' /etc/ufw/before.rules
+
+  # Enable UFW
+  - echo "y" | ufw enable
+
+  # Configure iptables NAT for exit node (IP masquerading)
+  - iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+  # Save iptables rules (iptables-persistent auto-saves on install with debconf)
+  - echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+  - echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+  - netfilter-persistent save
+
+  # Enable and start fail2ban
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # Install Tailscale
+  - curl -fsSL https://tailscale.com/install.sh | sh
+
+  # Enable tailscaled service (but don't authenticate yet - manual step required)
+  - systemctl enable tailscaled
+  - systemctl start tailscaled
+
+  # Privacy hardening: Disable IP forwarding logging
+  - sysctl -w net.ipv4.conf.all.log_martians=0
+  - sysctl -w net.ipv4.conf.default.log_martians=0
+
+  # Privacy hardening: Reduce log retention
+  - journalctl --vacuum-time=7d
+
+  # Privacy hardening: Disable some verbose kernel logging
+  - echo 'kernel.printk = 3 3 3 3' >> /etc/sysctl.conf
+  - sysctl -p
+
+  # Configure automatic security updates
+  - echo 'Unattended-Upgrade::Automatic-Reboot "false";' >> /etc/apt/apt.conf.d/50unattended-upgrades
+  - systemctl enable unattended-upgrades
+  - systemctl start unattended-upgrades
+
+# Final message
+final_message: |
+  ======================================
+  Tailscale Exit Node Setup Complete!
+  ======================================
+  Privacy-hardened configuration applied.
+
+  Next steps:
+  1. SSH into this server
+
+  2. Authenticate Tailscale as exit node:
+     sudo tailscale up --advertise-exit-node --accept-routes --netfilter-mode=off
+
+  3. Approve the exit node in Tailscale admin console:
+     https://login.tailscale.com/admin/machines
+
+  4. Enable exit node on your client devices
+
+  Privacy & Exit Node Features Enabled:
+  - IP forwarding with NAT/masquerading configured
+  - UFW forwarding policy set to ACCEPT
+  - iptables rules persistent across reboots
+  - IP forwarding logging disabled
+  - Log retention reduced to 7 days
+  - Kernel verbose logging minimized
+  - Firewall: only SSH + Tailscale ports open
+
+  Server is ready after $UPTIME seconds

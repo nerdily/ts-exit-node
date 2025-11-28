@@ -1,0 +1,21 @@
+# Example terraform.tfvars file
+# Copy this to terraform.tfvars and fill in your actual values
+# terraform.tfvars is gitignored and will never be committed
+
+# REQUIRED: Your Hetzner Cloud API token
+# Get it from: https://console.hetzner.cloud/ -> Security -> API Tokens
+# Needs "Read & Write" permissions
+hcloud_token = "your-hetzner-api-token-here"
+
+# REQUIRED: Your SSH public key for server access
+# Find it with: cat ~/.ssh/id_ed25519.pub (or id_rsa.pub)
+# Or generate new: ssh-keygen -t ed25519 -C "your_email@example.com"
+ssh_public_key = "ssh-ed25519 AAAAC3Nza... your-email@example.com"
+
+# OPTIONAL: Customize these if desired (defaults are shown)
+
+# server_name = "my-custom-name"  # If not set, auto-generates as "tailscale-exit-{location}"
+# server_type = "cx11"
+# location = "hel1"  # hel1=Helsinki, fsn1=Falkenstein, nbg1=Nuremberg
+# image = "ubuntu-24.04"
+# admin_username = "admin"

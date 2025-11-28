@@ -1,0 +1,42 @@
+# Terraform state files (contain resource details and secrets)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform variable files with actual secret values
+terraform.tfvars
+*.auto.tfvars
+
+# Terraform directory (provider cache)
+.terraform/
+.terraform.lock.hcl
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Override files (local modifications)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files
+.terraformrc
+terraform.rc
+
+# Python virtual environment
+venv/
+__pycache__/
+*.py[cod]
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
