@@ -12,7 +12,8 @@ packages:
   - ufw
   - fail2ban
   - unattended-upgrades
-  - iptables-persistent
+  # Note: iptables-persistent conflicts with ufw on Ubuntu 24.04
+  # UFW manages iptables persistence automatically
 
 # Enable IP forwarding for exit node functionality
 write_files:
@@ -35,27 +36,18 @@ write_files:
     owner: root:root
     permissions: '0644'
 
-  - path: /etc/ufw/before.rules.append
-    content: |
-      # NAT table rules for exit node (to be added to before.rules)
-      *nat
-      :POSTROUTING ACCEPT [0:0]
-      -A POSTROUTING -s 100.64.0.0/10 -o eth0 -j MASQUERADE
-      COMMIT
-    owner: root:root
-    permissions: '0644'
-
 # Run commands to set up the system
 runcmd:
   # Apply sysctl settings immediately
   - sysctl -p /etc/sysctl.d/99-tailscale.conf
 
-  # Configure SSH security (disable password auth, disable root login)
+  # Configure SSH security
+  # Disable password authentication (keys only)
   - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
   - sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-  - sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-  - sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-  - systemctl restart sshd
+  # Note: Ubuntu 24.04 default is PermitRootLogin prohibit-password (allows keys, blocks passwords)
+  # This is secure and intentional - root SSH access with keys is enabled for simplicity
+  - systemctl restart ssh
 
   # Configure UFW firewall
   - ufw default deny incoming
@@ -66,30 +58,71 @@ runcmd:
   # Configure UFW for exit node forwarding
   - sed -i 's/DEFAULT_FORWARD_POLICY="DROP"/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
 
-  # Add NAT rules to UFW before.rules (at the top)
-  - sed -i '1r /etc/ufw/before.rules.append' /etc/ufw/before.rules
+  # Add NAT rules to UFW before.rules dynamically (detect interface)
+  - |
+    set -e  # Exit on any error
+    IFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
+    if [ -z "$IFACE" ]; then
+      echo "ERROR: Could not detect default network interface"
+      exit 1
+    fi
+    cat > /tmp/ufw-nat-rules << EOF
+    # NAT table rules for exit node
+    *nat
+    :POSTROUTING ACCEPT [0:0]
+    -A POSTROUTING -s 100.64.0.0/10 -o $IFACE -j MASQUERADE
+    COMMIT
+    EOF
+    sed -i "1r /tmp/ufw-nat-rules" /etc/ufw/before.rules
 
-  # Enable UFW
+  # Enable UFW (this also loads the NAT rules from before.rules)
   - echo "y" | ufw enable
 
-  # Configure iptables NAT for exit node (IP masquerading)
-  - iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-
-  # Save iptables rules (iptables-persistent auto-saves on install with debconf)
-  - echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-  - echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-  - netfilter-persistent save
+  # Verify NAT masquerading is configured
+  - |
+    set -e  # Exit on any error
+    sleep 1  # Give UFW a moment to apply rules
+    if ! iptables -t nat -L POSTROUTING -n | grep -q MASQUERADE; then
+      echo "ERROR: NAT masquerading rule not found in iptables"
+      exit 1
+    fi
+    echo "NAT masquerading verified - UFW before.rules loaded successfully"
 
   # Enable and start fail2ban
   - systemctl enable fail2ban
   - systemctl start fail2ban
 
+  # Final system upgrade (after all package installations complete)
+  - |
+    set -e  # Exit on any error
+    echo "Running final system upgrade..."
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y
+    echo "System upgrade complete"
+
   # Install Tailscale
-  - curl -fsSL https://tailscale.com/install.sh | sh
+  - |
+    set -e  # Exit on any error
+    echo "Installing Tailscale..."
+    curl -fsSL https://tailscale.com/install.sh | sh || true  # Install script may return non-zero
+    if [ ! -f /usr/bin/tailscale ]; then
+      echo "ERROR: Tailscale installation failed - binary not found"
+      exit 1
+    fi
+    echo "Tailscale installed successfully at /usr/bin/tailscale"
 
   # Enable tailscaled service (but don't authenticate yet - manual step required)
-  - systemctl enable tailscaled
-  - systemctl start tailscaled
+  - |
+    set -e  # Exit on any error
+    systemctl enable tailscaled
+    systemctl start tailscaled
+    # Wait a moment for service to start
+    sleep 2
+    if ! systemctl is-active --quiet tailscaled; then
+      echo "ERROR: tailscaled service failed to start"
+      exit 1
+    fi
+    echo "tailscaled service running"
 
   # Privacy hardening: Disable IP forwarding logging
   - sysctl -w net.ipv4.conf.all.log_martians=0
@@ -107,15 +140,30 @@ runcmd:
   - systemctl enable unattended-upgrades
   - systemctl start unattended-upgrades
 
+  # Check if reboot is required and schedule automatic reboot
+  - |
+    if [ -f /var/run/reboot-required ]; then
+      echo "System reboot required (kernel/system updates installed)"
+      echo "Scheduling automatic reboot in 1 minute to complete setup..."
+      shutdown -r +1 "Rebooting to apply kernel/system updates"
+    else
+      echo "No reboot required - system ready"
+    fi
+
 # Final message
 final_message: |
   ======================================
   Tailscale Exit Node Setup Complete!
   ======================================
   Privacy-hardened configuration applied.
+  System fully patched with latest updates.
+
+  IMPORTANT: If kernel updates were installed, this server will
+  automatically reboot in ~1 minute. Wait for reboot to complete
+  before authenticating Tailscale.
 
   Next steps:
-  1. SSH into this server
+  1. SSH into this server (reconnect after reboot if needed)
 
   2. Authenticate Tailscale as exit node:
      sudo tailscale up --advertise-exit-node --accept-routes --netfilter-mode=off

@@ -41,7 +41,7 @@ terraform/
 - `cloud-init schema --config-file terraform/cloud-init.yaml` - Validate cloud-init syntax
 
 ### Server Access
-- `ssh admin@<server-ip>` - SSH into the provisioned server
+- `ssh root@<server-ip>` - SSH into the provisioned server (root access with keys enabled)
 - `sudo tailscale status` - Check Tailscale connection status
 - `sudo ufw status` - Check firewall status
 
@@ -57,7 +57,7 @@ terraform/
 - Cloud-init runs once at first boot to configure the server
 - Stages:
   1. **System Preparation**: Update packages, install curl/ufw/fail2ban
-  2. **User & Security**: Create admin user, disable root login, configure sudo
+  2. **SSH Security**: Disable password authentication (keys only), keep root login with keys enabled
   3. **Network**: Enable IP forwarding (sysctl), configure UFW firewall
   4. **Tailscale**: Install Tailscale, enable service (manual auth required)
 
@@ -73,7 +73,8 @@ terraform/
 ### Security
 - **No secrets in git**: terraform.tfvars and .tfstate files must be gitignored
 - **Manual Tailscale auth**: Cannot automate auth keys (must SSH and authenticate manually)
-- **Key-only SSH**: Password authentication disabled by default
+- **SSH Access**: Root login with keys enabled (secure for single-user), password auth disabled
+- **Ubuntu 24.04 default**: `PermitRootLogin prohibit-password` (allows keys, blocks passwords)
 - **Minimal attack surface**: Only SSH and Tailscale ports open
 
 ### Scope Limitations
@@ -113,8 +114,8 @@ terraform/
 
 ### Cloud-init Must Include
 - System updates and security packages
-- Admin user creation with SSH key
-- Disable root/password SSH access
+- Disable password authentication (keep root key-based access enabled)
+- Note: Ubuntu 24.04 defaults to `PermitRootLogin prohibit-password` (secure)
 - IP forwarding: `net.ipv4.ip_forward=1` and `net.ipv6.conf.all.forwarding=1`
 - UFW: default deny incoming, allow SSH, allow Tailscale UDP 41641
 - UFW forwarding policy: set to ACCEPT (required for exit node)

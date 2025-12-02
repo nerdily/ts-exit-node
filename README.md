@@ -401,7 +401,8 @@ This deployment includes privacy hardening:
 **Network:**
 - ✅ All traffic encrypted via WireGuard
 - ✅ Firewall: Only SSH (22) and Tailscale (41641) open
-- ✅ No password authentication (SSH key only)
+- ✅ SSH: Key-based authentication only (passwords disabled)
+- ✅ SSH: Root access enabled with keys for simplicity (single-user server)
 - ✅ Fail2ban enabled (brute-force protection)
 
 **What can't be hidden:**
@@ -439,9 +440,10 @@ This deployment includes privacy hardening:
 These are protected by `.gitignore`.
 
 **SSH Access:**
-- Root login via public IP: ✅ Allowed (with SSH key)
-- Root login via Tailscale: ❌ Blocked (by default)
-- Password authentication: ❌ Disabled
+- Root login with SSH keys: ✅ Enabled (secure for single-user server)
+- Password authentication: ❌ Disabled (keys only)
+- Ubuntu 24.04 default: `PermitRootLogin prohibit-password` (keys allowed, passwords blocked)
+- Hetzner automatically adds your SSH key to root's `authorized_keys`
 
 ---
 
